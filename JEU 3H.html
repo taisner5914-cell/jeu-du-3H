@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cheffe Amélia – Mini-jeu du 3H</title>
+<style>
+  :root{
+    --bg:#0e1525; --floor:#1a2740; --line:#284a7e; --accent:#4ac1ff;
+    --green:#65d46e; --yellow:#ffd400; --red:#ff5d5d; --white:#f5f7ff;
+  }
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--white);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+
+  /* HUD fixe en haut, ne couvre plus l'écran */
+  #hudBar{position:fixed;left:0;right:0;top:0;z-index:5;background:linear-gradient(180deg,#0f1b33,transparent)}
+  header{display:flex;gap:16px;align-items:center;justify-content:space-between;padding:10px 14px}
+  .hud{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .chip{background:#0f1b33;border:1px solid #284a7e;border-radius:10px;padding:6px 10px;box-shadow:0 0 0 1px #122347 inset}
+  .chip b{color:var(--accent)}
+  .legend{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:#13254a;border:1px solid #284a7e;font-size:12px}
+  .dot{width:10px;height:10px;border-radius:50%}
+
+  /* Overlays */
+  .overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(10,15,30,.75);backdrop-filter:blur(4px);z-index:10}
+  .panel{width:min(760px,90vw);background:#0f1b33;border:1px solid #284a7e;border-radius:16px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+  .panel h1{margin:0 0 8px;font-size:28px}
+  .panel p{opacity:.9}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px}
+  button{appearance:none;border:1px solid #3a63a5;background:#17335e;color:#fff;border-radius:12px;padding:10px 16px;font-weight:700;cursor:pointer}
+  button:active{transform:translateY(1px)}
+  .panel-lite{background:#0f1b33;border:1px solid #284a7e;border-radius:12px;padding:10px}
+  .lbTable{width:100%;border-collapse:collapse;font-size:14px}
+  .lbTable th,.lbTable td{padding:6px 8px;border-bottom:1px solid #1e335b;text-align:left}
+  .lbRank{width:36px;text-align:center}
+
+  /* Scène = canvas + D-pad (sous le HUD) */
+  #stage{position:relative;width:1024px;margin:100px auto 20px auto;touch-action:none}
+  canvas{display:block;margin:0 auto;outline:none;touch-action:none}
+
+  /* D-pad tactile, bas-gauche */
+  #touchControls{
+    position:absolute; left:16px; bottom:16px;
+    display:grid; grid-template-columns:64px 64px; grid-template-rows:64px 64px;
+    gap:18px; pointer-events:auto; touch-action:none; user-select:none; z-index:2;
+  }
+  .padBtn{
+    width:64px; height:64px; border-radius:16px; background:#0f1b33AA; border:2px solid #2c4a7f; box-shadow:0 6px 16px rgba(0,0,0,.35);
+    display:flex; align-items:center; justify-content:center; font-weight:800; color:#d9e6ff; backdrop-filter:blur(4px);
+  }
+  .padIcon{font-size:24px; line-height:1}
+  #btnUp   { grid-column:1; grid-row:1}
+  #btnRight{ grid-column:2; grid-row:1}
+  #btnLeft { grid-column:1; grid-row:2}
+  #btnDown { grid-column:2; grid-row:2}
+</style>
+</head>
+<body>
+  <!-- HUD -->
+  <div id="hudBar">
+    <header>
+      <div class="hud">
+        <div class="chip">⏱️ Temps : <b id="hudTime">30</b>s</div>
+        <div class="chip">🏆 Score : <b id="hudScore">0</b></div>
+        <div class="chip">🚪 Évadés : <b id="hudEscaped">0</b> / 3</div>
+        <div class="chip">👥 Attrapés : <b id="hudCaught">0</b></div>
+      </div>
+      <div class="legend">
+        <span class="badge"><span class="dot" style="background:#58a6ff"></span> Amélia (cheffe)</span>
+        <span class="badge"><span class="dot" style="background:#a8e6cf"></span> Infirmier·e·s</span>
+        <span class="badge"><span class="dot" style="background:var(--yellow)"></span> DASRI</span>
+        <span class="badge"><span class="dot" style="background:#7df18e"></span> SHA</span>
+      </div>
+    </header>
+  </div>
+
+  <!-- Scène -->
+  <div id="stage">
+    <canvas id="game" width="1024" height="768" tabindex="0" aria-label="Jeu du 3H"></canvas>
+    <div id="touchControls" aria-hidden="false">
+      <button class="padBtn" id="btnUp"    type="button" aria-label="Haut"><span class="padIcon">↑</span></button>
+      <button class="padBtn" id="btnRight" type="button" aria-label="Droite"><span class="padIcon">→</span></button>
+      <button class="padBtn" id="btnLeft"  type="button" aria-label="Gauche"><span class="padIcon">←</span></button>
+      <button class="padBtn" id="btnDown"  type="button" aria-label="Bas"><span class="padIcon">↓</span></button>
+    </div>
+  </div>
+
+  <!-- Overlays -->
+  <div id="startScreen" class="overlay">
+    <div class="panel">
+      <h1>Cheffe Amélia – Attrape ton équipe avant qu’elle ne file !
+(P.S: Jeu à But Humoristique) </h1>
+      <p>Empêche <b>3</b> départs par la porte du haut. +5s par employé attrapé. 30s de base.</p>
+      <div class="row">
+        <label for="playerName">Pseudo :</label>
+        <input id="playerName" type="text" placeholder="Ex: Romain" style="padding:8px 10px;border-radius:8px;border:1px solid #284a7e;background:#0c1730;color:#fff" maxlength="18">
+        <button id="btnSaveName" type="button">Enregistrer</button>
+      </div>
+      <div class="row">
+        <button id="btnStart" type="button">C’est parti</button>
+        <button id="btnSlow" type="button">Mode tranquille</button>
+      </div>
+      <h2 style="margin-top:14px">🏅 Classement — Top 10</h2>
+      <div id="leaderboardStart" class="panel-lite"></div>
+    </div>
+  </div>
+
+  <div id="gameOver" class="overlay" style="display:none">
+    <div class="panel">
+      <h1 id="goTitle">Fin de service</h1>
+      <p id="goMsg"></p>
+      <h2>🏅 Classement — Top 10</h2>
+      <div id="leaderboardOver" class="panel-lite" style="margin-bottom:10px"></div>
+      <div class="row">
+        <button id="btnRestart" type="button">Rejouer</button>
+        <button id="btnResetLB" type="button" style="background:#5a1c1c;border-color:#8a2a2a">Réinitialiser</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ========= Canvas & State ========= */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+const STATE = {
+  running:false, time:30, score:0, escaped:0, caught:0,
+  pnjBaseSpeed: 2.0, pnjSlowSpeed: 1.5, playerSpeed: 2.1,
+  speedRampEach: 10, speedRampDelta: 0.15, nextRampAt: 20,
+  spawnDelay:1200, maxOnField:6, catchRadius:24,
+  lastSpawn:0, wavePool:[], pnj:[], obstacles:[], tick:0,
+  startedAt:null, playerName: localStorage.getItem('nurse_player_name') || ''
+};
+
+const NAMES = ["Thomas","Sarah","Déborah","Fiona D.","Fiona B.","Letizia","Romain","Loïc","Alison","Elisa","Myriam","Aglaé","Maryse","Stéphanie","Claudiane","Geoffrey","Jessika","Nadia","Estelle","Christine","Nathalie","Léontine"];
+const SCRUBS = ["#a8e6cf","#ffd9b3","#c6e3ff","#f2b8d1","#bfe6ff","#e3f1a8"];
+
+/* ========= HUD refs ========= */
+const hudTime = document.getElementById('hudTime');
+const hudScore = document.getElementById('hudScore');
+const hudEscaped = document.getElementById('hudEscaped');
+const hudCaught = document.getElementById('hudCaught');
+
+/* ========= UI refs ========= */
+const startScreen = document.getElementById('startScreen');
+const btnStart = document.getElementById('btnStart');
+const btnSlow = document.getElementById('btnSlow');
+const gameOverPanel = document.getElementById('gameOver');
+const btnRestart = document.getElementById('btnRestart');
+const goMsg = document.getElementById('goMsg');
+const goTitle = document.getElementById('goTitle');
+const inputName = document.getElementById('playerName');
+const btnSaveName = document.getElementById('btnSaveName');
+
+/* ========= Audio ========= */
+const AC = new (window.AudioContext || window.webkitAudioContext)();
+function beep(freq=880, dur=0.08, type='sine', vol=0.07){ const o=AC.createOscillator(), g=AC.createGain(); o.type=type; o.frequency.value=freq; g.gain.value=vol; o.connect(g); g.connect(AC.destination); o.start(); setTimeout(()=>o.stop(), dur*1000); }
+function chimeOK(){ beep(700,0.06,'triangle',0.08); setTimeout(()=>beep(1000,0.07,'triangle',0.08),60); }
+function buzz(){ beep(140,0.12,'square',0.06); setTimeout(()=>beep(110,0.1,'square',0.05),80); }
+
+/* ========= TTS ========= */
+let SELECTED_VOICE=null;
+function pickMaleFrenchVoice(v){const prefs=["Google français (Homme)","Microsoft Paul","Paul","Thomas","Nicolas","Michel","Mathieu","Yves"];for(const p of prefs){const f=v.find(x=>x.name.toLowerCase().includes(p.toLowerCase())&&/fr/i.test(x.lang));if(f) return f;}return v.find(x=>/fr/i.test(x.lang)&&/(Homme|Male)/i.test(x.name))||v.find(x=>/fr/i.test(x.lang))||null;}
+function refreshVoices(){const v=window.speechSynthesis.getVoices(); if(v&&v.length&&!SELECTED_VOICE){SELECTED_VOICE=pickMaleFrenchVoice(v);} }
+window.speechSynthesis.addEventListener('voiceschanged', refreshVoices); refreshVoices();
+function tts(t){ try{const u=new SpeechSynthesisUtterance(t); u.lang='fr-FR'; if(SELECTED_VOICE) u.voice=SELECTED_VOICE; u.rate=1; u.pitch=1; u.volume=1; window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);}catch(e){} }
+function ttsGameOver(){ tts("Amélia , C'est Jacques , malheureusement tu n'as plus assez de personnel, nous sommes obligés de fermer le 3Hache. Au revoir."); }
+
+/* ========= Classement ========= */
+const LB_KEY='nurse_top10_v2';
+function lbLoad(){ try{ return JSON.parse(localStorage.getItem(LB_KEY))||[]; }catch(_){ return []; } }
+function lbSave(a){ localStorage.setItem(LB_KEY, JSON.stringify(a)); }
+function lbCompare(a,b){ return (b.score-a.score)||(b.caught-a.caught)||(a.escaped-b.escaped)||(a.duration-b.duration)||(a.date-b.date); }
+function lbAdd(e){ let a=lbLoad(); a.push(e); a.sort(lbCompare); if(a.length>10) a=a.slice(0,10); lbSave(a); }
+function fmtSec(s){ s=Math.max(0,Math.round(s)); const m=Math.floor(s/60), ss=String(s%60).padStart(2,'0'); return m?`${m}m${ss}`:`${ss}s`; }
+function fmtDate(ts){ return new Date(ts).toLocaleString(); }
+function escHtml(s){ return (s||'').toString().replace(/[&<>"']/g,c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function lbRender(el){
+  const arr=lbLoad(); if(!el) return;
+  if(arr.length===0){ el.innerHTML=`<div style="opacity:.7">Aucune partie enregistrée. Fais un score et reviens 😉</div>`; return; }
+  el.innerHTML = `<table class="lbTable"><thead><tr>
+    <th class="lbRank">#</th><th>Score</th><th>Pseudo</th><th>Attrapés</th><th>Évadés</th><th>Durée</th><th>Date</th>
+  </tr></thead><tbody>${
+    arr.map((e,i)=>`<tr><td class="lbRank">#${i+1}</td><td><b>${e.score}</b> pts</td><td>${escHtml(e.name)||'—'}</td><td>${e.caught}</td><td>${e.escaped}</td><td>${fmtSec(e.duration)}</td><td style="opacity:.75">${fmtDate(e.date)}</td></tr>`).join('')
+  }</tbody></table>`;
+}
+function lbReset(){ localStorage.removeItem(LB_KEY); }
+
+/* ========= Monde ========= */
+const world={ exitDoor:{x:W/2-60,y:10,w:120,h:16}, corridor:{x:W/2-140,w:280}, rooms:[] };
+function addObstacle(x,y,w,h,type='bed'){ STATE.obstacles.push({x,y,w,h,type}); }
+function buildHospital(){
+  STATE.obstacles.length=0; world.rooms.length=0;
+  const leftX=60, rightX=W-60-220, roomW=220, roomH=90, gapY=16, topY=90;
+  const nums=[]; for(let n=1302;n<=1324;n++) nums.push(n);
+  let y=topY;
+  for(let row=0;row<12 && nums.length>0;row++){
+    const numL=nums.shift(); world.rooms.push({x:leftX,y,w:roomW,h:roomH,num:numL});
+    if(nums.length>0){ const numR=nums.shift(); world.rooms.push({x:rightX,y,w:roomW,h:roomH,num:numR}); }
+    y+=roomH+gapY;
+  }
+  world.rooms.forEach(r=>{
+    const bedW=76, bedH=20, pad=14;
+    addObstacle(r.x+pad, r.y+pad, bedW,bedH,'bed');
+    addObstacle(r.x+pad, r.y+pad+28, bedW,bedH,'bed');
+    addObstacle(r.x+r.w-24, r.y+10, 12,12,'tensio');
+    const doorY=r.y+r.h/2-8, shaW=10, shaH=24;
+    if(r.x<W/2){ addObstacle(r.x+r.w+6,doorY,shaW,shaH,'sha'); addObstacle(r.x+r.w+24,doorY+2,12,16,'dasri'); }
+    else{ addObstacle(r.x-6-shaW,doorY,shaW,shaH,'sha'); addObstacle(r.x-24-12,doorY+2,12,16,'dasri'); }
+  });
+}
+
+/* ========= Entrées clavier (PC) ========= */
+const keys = {}; // UNIQUE
+window.addEventListener('keydown', e=>{
+  const k=e.key;
+  if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '].includes(k)) e.preventDefault(); // évite le scroll
+  keys[k.toLowerCase()] = true;
+});
+window.addEventListener('keyup', e=>{
+  const k=e.key;
+  if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '].includes(k)) e.preventDefault();
+  keys[k.toLowerCase()] = false;
+});
+
+/* ========= Joueur ========= */
+const player = { x:W/2, y:H-80, r:14, speed:STATE.playerSpeed, name:'Amélia', color:'#58a6ff', vx:0, vy:0, scrub:'#58a6ff', chief:true };
+
+/* ========= PNJ ========= */
+function spawnOne(){
+  if(STATE.wavePool.length===0) return;
+  const name=STATE.wavePool.shift();
+  const spawnX=W/2+(Math.random()*60-30), spawnY=H-60+Math.random()*30;
+  const p={ name, x:spawnX+(Math.random()<0.5?-80:80), y:spawnY, r:13, speed:STATE.pnjSpeedCurrent,
+            escaped:false, caught:false, vx:0, vy:-STATE.pnjSpeedCurrent,
+            wanderAngle:(Math.random()-0.5)*1.2, wanderTimer:250+Math.random()*750, seed:Math.random()*1000,
+            scrub:SCRUBS[Math.floor(Math.random()*SCRUBS.length)] };
+  STATE.pnj.push(p);
+}
+function scheduleRespawn(name, delay=1500){ setTimeout(()=>STATE.wavePool.push(name), delay); }
+function steerToExit(p, dt){
+  const centerX=world.corridor.x+world.corridor.w/2;
+  let ax=(centerX-p.x)*0.004, ay=-0.9;
+  p.wanderTimer-=dt;
+  if(p.wanderTimer<=0){ p.wanderAngle=(Math.random()-0.5)*1.4; p.wanderTimer=250+Math.random()*750; }
+  ax+=Math.sin(p.wanderAngle)*0.5; ay+=Math.cos(p.wanderAngle)*-0.2;
+  ax+=Math.sin(p.seed+STATE.tick*0.002)*0.05; ay+=Math.cos(p.seed+STATE.tick*0.002)*0.03;
+  const len=Math.hypot(ax,ay)||1; p.vx=(ax/len)*p.speed; p.vy=(ay/len)*p.speed; p.x+=p.vx; p.y+=p.vy;
+}
+
+/* ========= Collisions ========= */
+function collideCircleWithRect(obj,rect){
+  const nx=Math.max(rect.x, Math.min(obj.x, rect.x+rect.w));
+  const ny=Math.max(rect.y, Math.min(obj.y, rect.y+rect.h));
+  const dx=obj.x-nx, dy=obj.y-ny, d2=dx*dx+dy*dy;
+  if(d2<obj.r*obj.r){
+    const d=Math.max(0.0001, Math.sqrt(d2)), ov=obj.r-d, ux=dx/d, uy=dy/d;
+    obj.x+=ux*ov; obj.y+=uy*ov; return true;
+  } return false;
+}
+function collideWorld(obj){
+  if(obj.x-obj.r<0) obj.x=obj.r;
+  if(obj.x+obj.r>W) obj.x=W-obj.r;
+  if(obj.y-obj.r<0) obj.y=obj.r;
+  if(obj.y+obj.r>H) obj.y=H-obj.r;
+  for(const o of STATE.obstacles) collideCircleWithRect(obj,o);
+}
+
+/* ========= Dessin ========= */
+function shade(hex,pct){const c=hex.replace('#','');const n=parseInt(c,16);let r=(n>>16)&255,g=(n>>8)&255,b=n&255;r=Math.min(255,Math.max(0,r+255*pct/100));g=Math.min(255,Math.max(0,g+255*pct/100));b=Math.min(255,Math.max(0,b+255*pct/100));return '#'+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1);}
+function roundRect(x,y,w,h,r=6){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+
+function draw(){
+  // sol & couloir
+  ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--floor'); ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#162648'; ctx.fillRect(world.corridor.x,0,world.corridor.w,H);
+  ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--line'); ctx.lineWidth=2;
+  for(let y=40;y<H;y+=40){ctx.beginPath();ctx.moveTo(world.corridor.x+8,y);ctx.lineTo(world.corridor.x+world.corridor.w-8,y);ctx.stroke();}
+
+  // sortie
+  ctx.fillStyle='#7cf7a0'; ctx.fillRect(world.exitDoor.x,world.exitDoor.y,world.exitDoor.w,world.exitDoor.h);
+  ctx.fillStyle='#0b2615'; ctx.fillRect(world.exitDoor.x, world.exitDoor.y+world.exitDoor.h, world.exitDoor.w,4);
+  ctx.fillStyle='#d2ffe0'; ctx.font='12px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('SORTIE', world.exitDoor.x+world.exitDoor.w/2, world.exitDoor.y+world.exitDoor.h+16);
+
+  // chambres
+  ctx.textAlign='left';
+  for(const r of world.rooms){
+    ctx.fillStyle='#0f1b33'; ctx.fillRect(r.x,r.y,r.w,r.h);
+    ctx.strokeStyle='#284a7e'; ctx.strokeRect(r.x+0.5,r.y+0.5,r.w-1,r.h-1);
+    ctx.fillStyle='#102a52'; ctx.fillRect(r.x+6, r.y-18,56,16);
+    ctx.fillStyle='#88a9ff'; ctx.fillText(String(r.num), r.x+10, r.y-6);
+  }
+
+  // obstacles
+  for(const o of STATE.obstacles){
+    switch(o.type){
+      case 'bed': ctx.fillStyle='#99c7ff'; ctx.fillRect(o.x,o.y,o.w,o.h); ctx.fillStyle='#e9f3ff'; ctx.fillRect(o.x+2,o.y+2,o.w-4,o.h-10); ctx.fillStyle='#497dc4'; ctx.fillRect(o.x,o.y+o.h-8,o.w,8); break;
+      case 'tensio': ctx.fillStyle='#66ffb0'; ctx.fillRect(o.x,o.y,o.w,o.h); break;
+      case 'sha': ctx.fillStyle='#7df18e'; ctx.fillRect(o.x,o.y,o.w,o.h); ctx.fillStyle='#0b2a16'; ctx.fillRect(o.x+2,o.y+4,o.w-4,3); break;
+      case 'dasri': ctx.fillStyle='#ffd400'; ctx.fillRect(o.x,o.y,o.w,o.h); ctx.fillStyle='#222'; ctx.fillRect(o.x,o.y, o.w,3); break;
+    }
+  }
+
+  // personnages
+  drawNurse(player.x,player.y,player.r,player.scrub,true,player.name,player.vx,player.vy,0);
+  for(const p of STATE.pnj){ drawNurse(p.x,p.y,p.r,p.scrub,false,p.name,p.vx||0,p.vy||-1,p.seed||0); }
+}
+
+/* Sprite infirmier */
+function drawNurse(x,y,r,scrubColor,isChief=false,name='',vx=0,vy=-1,seed=0){
+  const headR=r*0.8, bodyH=r*2.2, shoulderW=r*1.6, hipW=r*1.2;
+  const speedMag=Math.hypot(vx,vy)||1, phase=(STATE.tick*0.02)+seed, swing=Math.sin(phase);
+  const ampLeg=Math.min(1,speedMag)*8, ampArm=Math.min(1,speedMag)*9, tilt=swing*0.06;
+  const skin='#f4d0b5', scrubDark=shade(scrubColor,-25), outline='#1e2b3a';
+
+  ctx.save(); ctx.translate(x,y); ctx.rotate(tilt);
+  ctx.beginPath(); ctx.fillStyle=skin; ctx.arc(0,-headR-headR*0.9,headR,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.fillStyle=shade(scrubColor,-15); ctx.arc(0,-headR-headR*0.9-2, headR*0.65, Math.PI*0.2, Math.PI*0.8); ctx.fill();
+  const topY=-headR+4, botY=topY+bodyH*0.65;
+  ctx.beginPath(); ctx.moveTo(-shoulderW/2,topY); ctx.lineTo(shoulderW/2,topY); ctx.lineTo(hipW/2,botY); ctx.lineTo(-hipW/2,botY); ctx.closePath();
+  ctx.fillStyle=scrubColor; ctx.fill();
+  ctx.strokeStyle=scrubDark; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(-6,topY+6); ctx.lineTo(0,topY+14); ctx.lineTo(6,topY+6); ctx.stroke();
+  ctx.fillStyle=shade(scrubColor,-15); roundRect(shoulderW*0.15, topY+16,10,10,2); ctx.fill();
+  ctx.fillStyle='#ffffff'; roundRect(-shoulderW*0.38, topY+12,14,10,2); ctx.fill();
+  ctx.strokeStyle='#d31b2c'; ctx.lineWidth=2; ctx.beginPath();
+  ctx.moveTo(-shoulderW*0.38+3, topY+17); ctx.lineTo(-shoulderW*0.38+11, topY+17);
+  ctx.moveTo(-shoulderW*0.38+7, topY+13); ctx.lineTo(-shoulderW*0.38+7, topY+21); ctx.stroke();
+  const shoulderY=topY+8; ctx.strokeStyle=outline; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.moveTo(-shoulderW*0.45,shoulderY); ctx.lineTo(-shoulderW*0.45-10, shoulderY+(-ampArm*swing)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(shoulderW*0.45,shoulderY);  ctx.lineTo(shoulderW*0.45+10, shoulderY+(ampArm*swing));  ctx.stroke();
+  if(isChief){
+    ctx.strokeStyle='#e53935'; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.moveTo(-6,topY+6); ctx.quadraticCurveTo(-14,topY+18,-10,topY+28); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(6,topY+6);  ctx.quadraticCurveTo(14,topY+18, 10,topY+28);  ctx.stroke();
+    ctx.fillStyle='#e53935'; ctx.beginPath(); ctx.arc(-10,topY+28,2.5,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(10,topY+28,2.5,0,Math.PI*2); ctx.fill();
+  }
+  const pantsTop=botY-2; ctx.fillStyle=scrubDark; roundRect(-hipW/2,pantsTop,hipW,bodyH*0.35,3); ctx.fill();
+  const hipY=pantsTop+4; ctx.strokeStyle=outline; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.moveTo(0,hipY); ctx.lineTo(-7, hipY+(ampLeg*swing)+14); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0,hipY); ctx.lineTo( 7, hipY+(-ampLeg*swing)+14); ctx.stroke();
+  ctx.fillStyle='#202833'; ctx.fillRect(-9, hipY+(ampLeg*swing)+18, 8,3); ctx.fillRect(1, hipY+(-ampLeg*swing)+18, 8,3);
+  ctx.restore();
+  ctx.font='12px sans-serif'; ctx.textAlign='center'; ctx.fillStyle='#e8f0ff'; ctx.fillText(name, x, y+r+16);
+}
+
+/* ========= Boucle ========= */
+let lastTime=0;
+function loop(ts){
+  if(!STATE.running) return;
+  const dt=Math.min(32, ts-lastTime); lastTime=ts; STATE.tick+=dt;
+
+  if(STATE.pnj.length<STATE.maxOnField && STATE.wavePool.length>0 && (ts-STATE.lastSpawn)>STATE.spawnDelay){ spawnOne(); STATE.lastSpawn=ts; }
+
+  STATE.time-=dt/1000; if(STATE.time<0) STATE.time=0;
+
+  if(STATE.time<=STATE.nextRampAt && STATE.running){ STATE.pnjSpeedCurrent+=STATE.speedRampDelta; STATE.pnj.forEach(p=>p.speed=STATE.pnjSpeedCurrent); STATE.nextRampAt-=STATE.speedRampEach; }
+
+  let vx=0, vy=0;
+  if(keys['arrowleft']||keys['q']) vx-=1;
+  if(keys['arrowright']||keys['d']) vx+=1;
+  if(keys['arrowup']||keys['z']) vy-=1;
+  if(keys['arrowdown']||keys['s']) vy+=1;
+  const mag=Math.hypot(vx,vy)||1;
+  player.vx=(vx/mag)*player.speed; player.vy=(vy/mag)*player.speed;
+  player.x+=player.vx; player.y+=player.vy; collideWorld(player);
+
+  for(let i=STATE.pnj.length-1;i>=0;i--){
+    const p=STATE.pnj[i]; steerToExit(p,dt); collideWorld(p);
+    const dd=Math.hypot(p.x-player.x,p.y-player.y);
+    if(dd<STATE.catchRadius+p.r){ chimeOK(); STATE.score+=10; STATE.caught+=1; STATE.time=Math.min(99,STATE.time+5); STATE.pnj.splice(i,1); scheduleRespawn(p.name,1200+Math.random()*1200); continue; }
+    if(p.y-p.r<=world.exitDoor.y+world.exitDoor.h && p.x>=world.exitDoor.x && p.x<=world.exitDoor.x+world.exitDoor.w){
+      buzz(); STATE.escaped+=1; STATE.pnjSpeedCurrent+=0.2; STATE.pnj.forEach(pp=>pp.speed=STATE.pnjSpeedCurrent); STATE.pnj.splice(i,1); continue;
+    }
+  }
+
+  hudTime.textContent=STATE.time.toFixed(0);
+  hudScore.textContent=STATE.score;
+  hudEscaped.textContent=STATE.escaped;
+  hudCaught.textContent=STATE.caught;
+
+  if(STATE.escaped>=3 || STATE.time<=0){ endGame(); return; }
+
+  draw(); requestAnimationFrame(loop);
+}
+
+/* ========= Start / End ========= */
+function startGame({slow=false}={}){
+  AC.resume?.(); refreshVoices();
+  STATE.running=true; STATE.time=30; STATE.score=0; STATE.escaped=0; STATE.caught=0;
+  STATE.pnjSpeedCurrent = slow ? STATE.pnjSlowSpeed : STATE.pnjBaseSpeed;
+  STATE.nextRampAt=20; STATE.spawnDelay=1200; STATE.maxOnField=6;
+  STATE.pnj.length=0; STATE.wavePool=shuffle([...NAMES]); buildHospital();
+  STATE.startedAt=Date.now();
+  startScreen.style.display='none'; gameOverPanel.style.display='none';
+  lastTime=performance.now(); requestAnimationFrame(loop);
+  canvas.focus(); // pour les touches PC
+}
+function endGame(){
+  STATE.running=false; draw();
+  if(STATE.escaped>=3){ goTitle.textContent="Game Over – Trop de départs !"; goMsg.textContent="« Amélia , C'est Jacques , malheureusement tu n'as plus assez de personnel, nous sommes obligés de fermer le 3H. Au revoir. »"; ttsGameOver(); }
+  else{ goTitle.textContent="Temps écoulé"; goMsg.textContent=`Score : ${STATE.score} – Attrapés : ${STATE.caught} – Évadés : ${STATE.escaped}`; }
+  const durationSec=(Date.now()-(STATE.startedAt||Date.now()))/1000;
+  lbAdd({ name:STATE.playerName||'—', score:STATE.score, caught:STATE.caught, escaped:STATE.escaped, duration:durationSec, date:Date.now() });
+  lbRender(document.getElementById('leaderboardStart')); lbRender(document.getElementById('leaderboardOver'));
+  gameOverPanel.style.display='flex';
+}
+
+/* ========= Utils & UI ========= */
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+
+btnStart.addEventListener('click',()=>startGame({slow:false}));
+btnSlow.addEventListener('click',()=>startGame({slow:true}));
+btnRestart.addEventListener('click',()=>{ startScreen.style.display='flex'; gameOverPanel.style.display='none'; });
+if(STATE.playerName) inputName.value=STATE.playerName;
+btnSaveName.addEventListener('click', ()=>{ STATE.playerName=(inputName.value||'').trim().slice(0,18); localStorage.setItem('nurse_player_name', STATE.playerName); lbRender(document.getElementById('leaderboardStart')); });
+lbRender(document.getElementById('leaderboardStart'));
+document.getElementById('btnResetLB')?.addEventListener('click', ()=>{ lbReset(); lbRender(document.getElementById('leaderboardStart')); lbRender(document.getElementById('leaderboardOver')); });
+
+/* ========= D-pad tactile ========= */
+const pad={ up:document.getElementById('btnUp'), down:document.getElementById('btnDown'), left:document.getElementById('btnLeft'), right:document.getElementById('btnRight') };
+function press(dir,on){ const map={up:['z','arrowup'],down:['s','arrowdown'],left:['q','arrowleft'],right:['d','arrowright']}; for(const k of map[dir]) keys[k]=on; }
+function bindPad(el,dir){ const down=e=>{e.preventDefault();press(dir,true)}; const up=e=>{e.preventDefault();press(dir,false)}; el.addEventListener('pointerdown',down); window.addEventListener('pointerup',up); el.addEventListener('pointercancel',up); el.addEventListener('pointerleave',up); }
+bindPad(pad.up,'up'); bindPad(pad.down,'down'); bindPad(pad.left,'left'); bindPad(pad.right,'right');
+
+/* Empêche le scroll sur mobile pendant le jeu */
+document.getElementById('stage').addEventListener('touchmove', e=>{ e.preventDefault(); }, {passive:false});
+
+/* Joystick glisser (optionnel, en plus du D-pad) */
+let touchId=null,tStart=null;
+canvas.addEventListener('touchstart', e=>{ if(e.target.closest('#touchControls')) return; const t=e.changedTouches[0]; touchId=t.identifier; tStart={x:t.clientX,y:t.clientY}; }, {passive:true});
+canvas.addEventListener('touchmove', e=>{ if(touchId==null) return; for(const t of e.changedTouches){ if(t.identifier===touchId){ const dx=t.clientX-tStart.x, dy=t.clientY-tStart.y; keys['q']=dx<-10; keys['d']=dx>10; keys['z']=dy<-10; keys['s']=dy>10; } } }, {passive:true});
+canvas.addEventListener('touchend', e=>{ if(touchId==null) return; for(const t of e.changedTouches){ if(t.identifier===touchId){ keys['q']=keys['d']=keys['z']=keys['s']=false; touchId=null; tStart=null; } } }, {passive:true});
+</script>
+</body>
+</html>
